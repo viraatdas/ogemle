@@ -28,6 +28,8 @@ export default function App() {
   const [micOn, setMicOn] = useState(true);
   const [hasLocalMedia, setHasLocalMedia] = useState(false);
   const [hasRemoteMedia, setHasRemoteMedia] = useState(false);
+  const [activeTab, setActiveTab] = useState<'main' | 'about'>('main');
+  const [escPressCount, setEscPressCount] = useState(0);
 
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
@@ -227,7 +229,25 @@ export default function App() {
     sendMessage({ type: 'leave' });
     resetCall();
     setStatus('You left the chat. Click Start when ready again.');
+    setEscPressCount(0);
   }, [resetCall, sendMessage]);
+
+  const handleEscPress = useCallback(() => {
+    if (!inCall && !isFindingMatch) return;
+
+    if (escPressCount === 0) {
+      setEscPressCount(1);
+      setStatus('Press ESC again to leave and find a new partner.');
+      setTimeout(() => setEscPressCount(0), 3000);
+    } else if (escPressCount === 1) {
+      leaveChat();
+      setTimeout(() => {
+        if (serverState === 'online') {
+          startChat();
+        }
+      }, 3000);
+    }
+  }, [escPressCount, inCall, isFindingMatch, leaveChat, serverState, startChat]);
 
   const toggleCamera = useCallback(() => {
     const stream = localStreamRef.current;
@@ -335,6 +355,17 @@ export default function App() {
     }
   }, [hasRemoteMedia]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleEscPress();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleEscPress]);
+
   const serverIndicatorLabel =
     serverState === 'online' ? 'Online' : serverState === 'connecting' ? 'Connecting' : 'Offline';
 
@@ -346,66 +377,83 @@ export default function App() {
     <div className="app-shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">Realtime WebRTC demo</p>
           <h1>ogemle</h1>
-          <p className="subtitle">Anonymous one-to-one video chats with a single click.</p>
         </div>
-        <div className={`status-pill ${serverState}`}>
-          <span className="dot" />
-          {serverIndicatorLabel}
+        <div className="nav-tabs">
+          <button
+            className={`tab ${activeTab === 'main' ? 'active' : ''}`}
+            onClick={() => setActiveTab('main')}
+          >
+            <span className="dot" />
+            {serverIndicatorLabel}
+          </button>
+          <button className={`tab ${activeTab === 'about' ? 'active' : ''}`} onClick={() => setActiveTab('about')}>
+            About
+          </button>
         </div>
       </header>
 
-      <section className="video-grid">
-        <div className="video-tile remote">
-          {hasRemoteMedia ? (
-            <video ref={remoteVideoRef} autoPlay playsInline />
-          ) : (
-            <div className="video-placeholder">
-              <p>{isFindingMatch ? 'Looking for someone...' : 'Partner video will appear here.'}</p>
+      {activeTab === 'main' && (
+        <>
+          <section className="video-grid">
+            <div className="video-tile remote">
+              {hasRemoteMedia ? (
+                <video ref={remoteVideoRef} autoPlay playsInline />
+              ) : (
+                <div className="video-placeholder">
+                  <p>{isFindingMatch ? 'Looking for someone...' : 'Partner video will appear here.'}</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <div className="video-tile local">
-          {mediaReady ? (
-            <video ref={localVideoRef} autoPlay muted playsInline />
-          ) : (
-            <div className="video-placeholder">
-              <p>Grant camera & mic access when you click Start.</p>
+            <div className="video-tile local">
+              {mediaReady ? (
+                <video ref={localVideoRef} autoPlay muted playsInline />
+              ) : (
+                <div className="video-placeholder">
+                  <p>Grant camera & mic access when you click Start.</p>
+                </div>
+              )}
+              <div className="preview-label">You</div>
             </div>
-          )}
-          <div className="preview-label">You</div>
-        </div>
-      </section>
+          </section>
 
-      <section className="status-panel">
-        <p>{status}</p>
-      </section>
+          <section className="status-panel">
+            <p>{status}</p>
+          </section>
 
-      <section className="controls">
-        <button className="primary" onClick={startChat} disabled={!canStart}>
-          {isFindingMatch ? 'Matching...' : 'Start'}
-        </button>
-        <button onClick={leaveChat} disabled={!canLeave}>
-          Leave
-        </button>
-        <button onClick={toggleCamera} disabled={!mediaReady}>
-          {cameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
-        </button>
-        <button onClick={toggleMic} disabled={!mediaReady}>
-          {micOn ? 'Mute' : 'Unmute'}
-        </button>
-      </section>
+          <section className="controls">
+            <button className="primary" onClick={startChat} disabled={!canStart}>
+              {isFindingMatch ? 'Matching...' : 'Start'}
+            </button>
+            <button onClick={leaveChat} disabled={!canLeave}>
+              Leave
+            </button>
+            <button onClick={toggleCamera} disabled={!mediaReady}>
+              {cameraOn ? 'Turn Camera Off' : 'Turn Camera On'}
+            </button>
+            <button onClick={toggleMic} disabled={!mediaReady}>
+              {micOn ? 'Mute' : 'Unmute'}
+            </button>
+          </section>
+        </>
+      )}
 
-      <section className="tips">
-        <h2>How it works</h2>
-        <ul>
-          <li>Your browser connects to a lightweight WebSocket signaling server.</li>
-          <li>When you press Start we exchange WebRTC offers, answers, and ICE candidates.</li>
-          <li>Media flows peer-to-peer directly between participants once connected.</li>
-          <li>No chats are stored. Refresh the page if anything looks off.</li>
-        </ul>
-      </section>
+      {activeTab === 'about' && (
+        <section className="about-section">
+          <h2>About Ogemle</h2>
+          <p>
+            Unlike its predecessors, Ogemle prioritizes safety. While we currently don't have an authentication
+            system (which we plan to roll out, though we believe it might affect the experience), we heavily focus on
+            using the latest and best ML models to ensure there isn't any NSFW content. That said, if you encounter
+            issues of any kind, please report them.
+          </p>
+          <p>We want to ensure that this is a pleasant and safe experience for all.</p>
+          <p>
+            Another focus for Ogemle is the video-first approach. We have a hypothesis that adding chat functionality
+            may detract from the experience, but we aren't certain and we're willing to be corrected on this.
+          </p>
+        </section>
+      )}
     </div>
   );
 }
