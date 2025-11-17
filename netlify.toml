@@ -1,0 +1,8 @@
+[build]
+  base = "."
+  command = "corepack enable pnpm && pnpm install --frozen-lockfile && pnpm --filter ogemle-client build"
+  publish = "client/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PNPM_VERSION = "10.11.1"

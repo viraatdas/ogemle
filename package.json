@@ -1,0 +1,24 @@
+{
+  "name": "ogemle",
+  "version": "0.1.0",
+  "description": "Random video chat prototype with WebRTC + WebSockets",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -c auto \"pnpm --filter ogemle-server dev\" \"pnpm --filter ogemle-client dev\"",
+    "dev:server": "pnpm --filter ogemle-server dev",
+    "dev:client": "pnpm --filter ogemle-client dev",
+    "build": "pnpm --filter ogemle-server build && pnpm --filter ogemle-client build",
+    "start": "concurrently -c auto \"pnpm --filter ogemle-server start\" \"pnpm --filter ogemle-client preview -- --host\""
+  },
+  "keywords": [
+    "webrtc",
+    "omegle",
+    "video-chat"
+  ],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.11.1",
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
