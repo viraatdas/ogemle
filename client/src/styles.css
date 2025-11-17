@@ -264,6 +264,14 @@ button.primary:not(:disabled):hover {
   margin-bottom: 1.5rem;
 }
 
+.about-section h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 400;
+  font-size: 1.1rem;
+  color: #1a1a1a;
+}
+
 .about-section p {
   margin: 0 0 1rem 0;
   line-height: 1.7;
