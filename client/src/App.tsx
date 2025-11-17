@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as nsfwjs from 'nsfwjs';
 
 type SignalPayload =
   | { kind: 'offer'; data: RTCSessionDescriptionInit }
@@ -40,6 +41,8 @@ export default function App() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roleRef = useRef<'offerer' | 'answerer' | null>(null);
   const mountedRef = useRef(true);
+  const nsfwModelRef = useRef<nsfwjs.NSFWJS | null>(null);
+  const moderationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const sendMessage = useCallback((payload: object) => {
     const ws = socketRef.current;
@@ -62,6 +65,11 @@ export default function App() {
       roleRef.current = null;
       setIsFindingMatch(false);
       setInCall(false);
+
+      if (moderationIntervalRef.current) {
+        clearInterval(moderationIntervalRef.current);
+        moderationIntervalRef.current = null;
+      }
 
       if (peerRef.current) {
         peerRef.current.ontrack = null;
@@ -365,6 +373,59 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleEscPress]);
+
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        nsfwModelRef.current = await nsfwjs.load();
+        console.log('[NSFW] Model loaded successfully');
+      } catch (error) {
+        console.error('[NSFW] Failed to load model:', error);
+      }
+    };
+
+    loadModel();
+  }, []);
+
+  useEffect(() => {
+    if (!hasLocalMedia || !localVideoRef.current || !nsfwModelRef.current) return;
+
+    const checkContent = async () => {
+      const video = localVideoRef.current;
+      const model = nsfwModelRef.current;
+
+      if (!video || !model || video.readyState < 2) return;
+
+      try {
+        const predictions = await model.classify(video);
+        
+        const inappropriate = predictions.find(
+          (p) => (p.className === 'Hentai' || p.className === 'Porn' || p.className === 'Sexy') && p.probability > 0.6
+        );
+
+        if (inappropriate) {
+          console.warn('[NSFW] Inappropriate content detected:', inappropriate);
+          setStatus('Inappropriate content detected. Session terminated.');
+          leaveChat();
+          if (moderationIntervalRef.current) {
+            clearInterval(moderationIntervalRef.current);
+            moderationIntervalRef.current = null;
+          }
+        }
+      } catch (error) {
+        console.error('[NSFW] Classification error:', error);
+      }
+    };
+
+    moderationIntervalRef.current = setInterval(checkContent, 2000);
+
+    return () => {
+      if (moderationIntervalRef.current) {
+        clearInterval(moderationIntervalRef.current);
+        moderationIntervalRef.current = null;
+      }
+    };
+  }, [hasLocalMedia, leaveChat]);
 
   const serverIndicatorLabel =
     serverState === 'online' ? 'Online' : serverState === 'connecting' ? 'Connecting' : 'Offline';
