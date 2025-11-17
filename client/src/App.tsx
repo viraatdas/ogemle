@@ -441,13 +441,17 @@ export default function App() {
       {activeTab === 'about' && (
         <section className="about-section">
           <h2>About Ogemle</h2>
+          
+          <h3>Safety</h3>
           <p>
             Unlike its predecessors, Ogemle prioritizes safety. While we currently don't have an authentication
-            system (which we plan to roll out, though we believe it might affect the experience), we heavily focus on
+            system (which we might roll out if there are issues, though we believe it might affect the experience), we heavily focus on
             using the latest and best ML models to ensure there isn't any NSFW content. That said, if you encounter
             issues of any kind, please report them.
           </p>
           <p>We want to ensure that this is a pleasant and safe experience for all.</p>
+          
+          <h3>Video-first approach</h3>
           <p>
             Another focus for Ogemle is the video-first approach. We have a hypothesis that adding chat functionality
             may detract from the experience, but we aren't certain and we're willing to be corrected on this.
