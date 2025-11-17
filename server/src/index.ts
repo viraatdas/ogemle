@@ -1,7 +1,15 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { nanoid } from 'nanoid';
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 8080;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-me-in-production';
 
 interface Client {
   id: string;
@@ -9,6 +17,13 @@ interface Client {
   partnerId?: string;
   wantsChat: boolean;
   isAlive: boolean;
+  connectedAt: number;
+  pairedAt?: number;
+}
+
+interface ConversationRecord {
+  duration: number;
+  endedAt: number;
 }
 
 type SignalMessage = {
@@ -30,14 +45,113 @@ type OutgoingMessage =
   | { type: 'partner_left' }
   | { type: 'error'; payload: { message: string } };
 
-const wss = new WebSocketServer({ port: PORT });
+const stats = {
+  totalVisitors: 0,
+  activeConversations: 0,
+  conversationHistory: [] as ConversationRecord[],
+};
+
+const wss = new WebSocketServer({ noServer: true });
 const clients = new Map<string, Client>();
 const waitingQueue: string[] = [];
 
+const httpServer = http.createServer((req, res) => {
+  if (req.url === '/admin' && req.method === 'GET') {
+    const adminPath = path.join(__dirname, 'admin.html');
+    fs.readFile(adminPath, 'utf8', (err, data) => {
+      if (err) {
+        res.writeHead(500);
+        res.end('Admin page not found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(data);
+    });
+    return;
+  }
+
+  if (req.url === '/stats' && req.method === 'GET') {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    if (token !== ADMIN_PASSWORD) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
+
+    const buckets = {
+      '0-30s': 0,
+      '30s-1m': 0,
+      '1-5m': 0,
+      '5-15m': 0,
+      '15m+': 0,
+    };
+
+    stats.conversationHistory.forEach((record) => {
+      const duration = record.duration;
+      if (duration < 30) buckets['0-30s']++;
+      else if (duration < 60) buckets['30s-1m']++;
+      else if (duration < 300) buckets['1-5m']++;
+      else if (duration < 900) buckets['5-15m']++;
+      else buckets['15m+']++;
+    });
+
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    });
+    res.end(
+      JSON.stringify({
+        totalVisitors: stats.totalVisitors,
+        activeConversations: stats.activeConversations,
+        conversationHistory: {
+          total: stats.conversationHistory.length,
+          distribution: buckets,
+        },
+        currentlyConnected: clients.size,
+        queueLength: waitingQueue.length,
+      })
+    );
+    return;
+  }
+
+  if (req.url === '/stats' && req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  res.writeHead(404);
+  res.end('Not Found');
+});
+
+httpServer.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`[server] signaling server listening on http://localhost:${PORT}`);
+});
+
 wss.on('connection', (socket) => {
   const clientId = nanoid();
-  const client: Client = { id: clientId, socket, wantsChat: false, isAlive: true };
+  const client: Client = {
+    id: clientId,
+    socket,
+    wantsChat: false,
+    isAlive: true,
+    connectedAt: Date.now(),
+  };
   clients.set(clientId, client);
+  stats.totalVisitors++;
 
   send(client, {
     type: 'status',
@@ -161,21 +275,34 @@ function handleLeave(client: Client) {
   if (client.partnerId) {
     const partner = clients.get(client.partnerId);
     if (partner) {
+      if (client.pairedAt && partner.pairedAt) {
+        const duration = Math.floor((Date.now() - Math.max(client.pairedAt, partner.pairedAt)) / 1000);
+        stats.conversationHistory.push({ duration, endedAt: Date.now() });
+        stats.activeConversations = Math.max(0, stats.activeConversations - 1);
+      }
+
       partner.partnerId = undefined;
+      partner.pairedAt = undefined;
       send(partner, { type: 'partner_left' });
       send(partner, { type: 'status', payload: { message: 'Partner disconnected.' } });
     }
   }
 
   client.partnerId = undefined;
+  client.pairedAt = undefined;
   client.wantsChat = false;
 }
 
 function connectPair(offerer: Client, answerer: Client) {
+  const now = Date.now();
   offerer.partnerId = answerer.id;
   answerer.partnerId = offerer.id;
   offerer.wantsChat = false;
   answerer.wantsChat = false;
+  offerer.pairedAt = now;
+  answerer.pairedAt = now;
+
+  stats.activeConversations++;
 
   send(offerer, { type: 'match', payload: { partnerId: answerer.id, role: 'offerer' } });
   send(answerer, { type: 'match', payload: { partnerId: offerer.id, role: 'answerer' } });
